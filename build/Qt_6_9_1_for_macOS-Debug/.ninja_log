@@ -1,0 +1,35 @@
+# ninja log v7
+6	244	1779095191000000000	DiskServerApp_autogen/timestamp	4bd9611886c7b5d2
+6	244	1779095191000000000	DiskServerApp_autogen/mocs_compilation.cpp	4bd9611886c7b5d2
+6	244	1779095191000000000	/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/DiskServerApp_autogen/timestamp	4bd9611886c7b5d2
+6	244	1779095191000000000	/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/DiskServerApp_autogen/mocs_compilation.cpp	4bd9611886c7b5d2
+244	1007	1779095191000000000	CMakeFiles/DiskServerApp.dir/DiskServerApp_autogen/mocs_compilation.cpp.o	5bcb22bd54bff6
+218	1132	1778078722000000000	CMakeFiles/DiskServerApp.dir/CMySql.cpp.o	22a349d3814a385f
+245	1561	1779095191000000000	CMakeFiles/DiskServerApp.dir/main.cpp.o	3d614cbd3febe496
+245	1581	1779095191000000000	CMakeFiles/DiskServerApp.dir/server/tcpnet.cpp.o	4d8e9ab1c5ffd60f
+245	1691	1779095191000000000	CMakeFiles/DiskServerApp.dir/kernel/TCPKernel.cpp.o	6e810d6ff30d46d2
+1691	1728	1779095192000000000	DiskServer	37d36571031bf93b
+1	13	1778078721000000000	CMakeFiles/clean.additional	cdbfcfbeefbb6d3
+13	18	1778078721000000000	clean	7eb198a2a14a776
+13	704	1779095963000000000	build.ninja	8af18337e7d77960
+13	704	1779095963000000000	/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/cmake_install.cmake	8af18337e7d77960
+2	168	1779095963000000000	build.ninja	8af18337e7d77960
+2	168	1779095963000000000	/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/cmake_install.cmake	8af18337e7d77960
+6	240	1779095964000000000	DiskServerApp_autogen/timestamp	4bd9611886c7b5d2
+6	240	1779095964000000000	DiskServerApp_autogen/mocs_compilation.cpp	4bd9611886c7b5d2
+6	240	1779095964000000000	/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/DiskServerApp_autogen/timestamp	4bd9611886c7b5d2
+6	240	1779095964000000000	/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/DiskServerApp_autogen/mocs_compilation.cpp	4bd9611886c7b5d2
+241	960	1779095964000000000	CMakeFiles/DiskServerApp.dir/DiskServerApp_autogen/mocs_compilation.cpp.o	5bcb22bd54bff6
+241	1414	1779095964000000000	CMakeFiles/DiskServerApp.dir/main.cpp.o	3d614cbd3febe496
+241	1457	1779095964000000000	CMakeFiles/DiskServerApp.dir/server/tcpnet.cpp.o	4d8e9ab1c5ffd60f
+241	1537	1779095964000000000	CMakeFiles/DiskServerApp.dir/kernel/TCPKernel.cpp.o	6e810d6ff30d46d2
+1537	1593	1779095965000000000	DiskServer	93a02f1ed9e85d6e
+6	218	1779096178000000000	DiskServerApp_autogen/timestamp	4bd9611886c7b5d2
+6	218	1779096178000000000	DiskServerApp_autogen/mocs_compilation.cpp	4bd9611886c7b5d2
+6	218	1779096178000000000	/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/DiskServerApp_autogen/timestamp	4bd9611886c7b5d2
+6	218	1779096178000000000	/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/DiskServerApp_autogen/mocs_compilation.cpp	4bd9611886c7b5d2
+219	818	1779096178000000000	CMakeFiles/DiskServerApp.dir/DiskServerApp_autogen/mocs_compilation.cpp.o	5bcb22bd54bff6
+219	1225	1779096178000000000	CMakeFiles/DiskServerApp.dir/main.cpp.o	3d614cbd3febe496
+219	1254	1779096178000000000	CMakeFiles/DiskServerApp.dir/server/tcpnet.cpp.o	4d8e9ab1c5ffd60f
+219	1331	1779096178000000000	CMakeFiles/DiskServerApp.dir/kernel/TCPKernel.cpp.o	6e810d6ff30d46d2
+1331	1383	1779096180000000000	DiskServer	93a02f1ed9e85d6e

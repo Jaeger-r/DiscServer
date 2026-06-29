@@ -1,0 +1,5 @@
+/Users/jaegerproxima/Disk/DiskServer/build-local-qt611/CMakeFiles/DiskServerApp.dir
+/Users/jaegerproxima/Disk/DiskServer/build-local-qt611/CMakeFiles/edit_cache.dir
+/Users/jaegerproxima/Disk/DiskServer/build-local-qt611/CMakeFiles/rebuild_cache.dir
+/Users/jaegerproxima/Disk/DiskServer/build-local-qt611/CMakeFiles/DiskServerApp_autogen_timestamp_deps.dir
+/Users/jaegerproxima/Disk/DiskServer/build-local-qt611/CMakeFiles/DiskServerApp_autogen.dir
