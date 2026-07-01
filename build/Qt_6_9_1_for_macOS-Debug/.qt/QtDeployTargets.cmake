@@ -1,2 +1,0 @@
-set(__QT_DEPLOY_TARGET_DiskServerApp_FILE /Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/DiskServer)
-set(__QT_DEPLOY_TARGET_DiskServerApp_TYPE EXECUTABLE)

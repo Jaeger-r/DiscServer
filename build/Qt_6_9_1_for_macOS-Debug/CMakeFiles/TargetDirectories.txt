@@ -1,5 +1,0 @@
-/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/CMakeFiles/DiskServerApp.dir
-/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/CMakeFiles/edit_cache.dir
-/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/CMakeFiles/rebuild_cache.dir
-/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/CMakeFiles/DiskServerApp_autogen_timestamp_deps.dir
-/Volumes/Jaeger/qt project2/DiskServer/build/Qt_6_9_1_for_macOS-Debug/CMakeFiles/DiskServerApp_autogen.dir

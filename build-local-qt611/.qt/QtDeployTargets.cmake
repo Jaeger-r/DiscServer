@@ -1,2 +1,0 @@
-set(__QT_DEPLOY_TARGET_DiskServerApp_FILE /Users/jaegerproxima/Disk/DiskServer/build-local-qt611/DiskServer)
-set(__QT_DEPLOY_TARGET_DiskServerApp_TYPE EXECUTABLE)
