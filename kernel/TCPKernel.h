@@ -80,6 +80,7 @@ public:
     void OnlineUsers_Request(ConnectionId sock, char* szbuf);
     void PrivateChat_Request(ConnectionId sock, char* szbuf);
     void PrivateHistory_Request(ConnectionId sock, char* szbuf);
+    void ProfileUpdate_Request(ConnectionId sock, char* szbuf);
     void TransferControl_Request(ConnectionId sock, char* szbuf);
 public:
     //单例模式--不支持线程安全

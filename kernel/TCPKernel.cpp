@@ -248,6 +248,9 @@ void TCPKernel::dealData(ConnectionId sock, char* szbuf)
     case _default_protocol_private_history_request:
         PrivateHistory_Request(sock, szbuf);
         break;
+    case _default_protocol_profile_update_request:
+        ProfileUpdate_Request(sock, szbuf);
+        break;
     case _default_protocol_transfercontrol_request:
         TransferControl_Request(sock, szbuf);
         break;
@@ -978,6 +981,67 @@ void TCPKernel::PrivateHistory_Request(ConnectionId sock, char* szbuf)
     }
 
     m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
+}
+
+void TCPKernel::ProfileUpdate_Request(ConnectionId sock, char* szbuf)
+{
+    auto* request = reinterpret_cast<STRU_PROFILE_UPDATE_RQ*>(szbuf);
+    STRU_PROFILE_UPDATE_RS response;
+    response.m_userId = request ? request->m_userId : 0;
+    response.m_szResult = _profile_update_fail;
+
+    if (!request || request->m_userId <= 0) {
+        response.m_szResult = _profile_update_invalid;
+        m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
+        return;
+    }
+
+    const QString newNameRaw = safeText(request->m_szName);
+    const QString newPasswordRaw = safeText(request->m_szPassWord);
+    if (newNameRaw.isEmpty() && newPasswordRaw.isEmpty()) {
+        response.m_szResult = _profile_update_invalid;
+        m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
+        return;
+    }
+
+    if (!newNameRaw.isEmpty()) {
+        const QString safeName = m_pSQL->escapeString(newNameRaw);
+        char checkSql[SQLLEN * 2] = {0};
+        snprintf(checkSql, sizeof(checkSql),
+                 "select u_id from user_account where u_name = '%s' and u_id <> %lld",
+                 safeName.toLocal8Bit().constData(),
+                 request->m_userId);
+        list<string> rows;
+        if (m_pSQL->SelectMySql(checkSql, 1, rows) && !rows.empty()) {
+            response.m_szResult = _profile_update_name_exists;
+            m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
+            return;
+        }
+    }
+
+    QStringList assignments;
+    if (!newNameRaw.isEmpty()) {
+        assignments << QStringLiteral("u_name = '%1'").arg(m_pSQL->escapeString(newNameRaw));
+    }
+    if (!newPasswordRaw.isEmpty()) {
+        assignments << QStringLiteral("u_password = '%1'").arg(m_pSQL->escapeString(newPasswordRaw));
+    }
+
+    const QString sql = QStringLiteral("update user_account set %1 where u_id = %2")
+        .arg(assignments.join(QStringLiteral(",")))
+        .arg(request->m_userId);
+    if (!m_pSQL->UpdateMySql(sql.toLocal8Bit().constData())) {
+        m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
+        return;
+    }
+
+    const QString finalName = newNameRaw.isEmpty() ? userNameById(request->m_userId) : newNameRaw;
+    response.m_szResult = _profile_update_success;
+    qstrncpy(response.m_szName, finalName.toLocal8Bit().constData(), MAXSIZE);
+    writeRuntimeLog(QStringLiteral("profile updated: sock=%1 userId=%2 name=%3")
+                        .arg(sock).arg(request->m_userId).arg(finalName));
+    m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
+    sendOnlineUsersToAll();
 }
 
 void TCPKernel::TransferControl_Request(ConnectionId sock, char* szbuf)

@@ -20,7 +20,7 @@ int main(int argc, char *argv[])
     const QString defaultLogPath = QDir(appDir).filePath(QStringLiteral("chat_history.txt"));
     const QString defaultListenHost = QStringLiteral("127.0.0.1");
     const quint16 defaultListenPort = 1234;
-    const bool defaultTlsEnabled = true;
+    const bool defaultTlsEnabled = false;
     const QString defaultTlsCertPath = QDir(appDir).filePath(QStringLiteral("tls/server.crt"));
     const QString defaultTlsKeyPath = QDir(appDir).filePath(QStringLiteral("tls/server.key"));
     const QString defaultDbHost = QStringLiteral("127.0.0.1");
