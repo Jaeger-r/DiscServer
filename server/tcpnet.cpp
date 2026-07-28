@@ -26,7 +26,7 @@ bool TCPNet::initNetWork(const char* szip, quint16 sport)
         return false;
     }
 
-    QHostAddress hostAddress(QString::fromLocal8Bit(szip));
+    QHostAddress hostAddress(QString::fromUtf8(szip));
     if (hostAddress.isNull()) {
         hostAddress = QHostAddress::Any;
     }

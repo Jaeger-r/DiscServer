@@ -42,7 +42,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         list(PREPEND CMAKE_PREFIX_PATH "${JAEGER_QT_ROOT}")
     endif()
 
-    find_package(Qt6 6.9.1 REQUIRED COMPONENTS Core Network Sql)
+    find_package(Qt6 REQUIRED COMPONENTS Core Network Sql)
 endif()
 
 set(DISKSERVER_SOURCES
@@ -88,6 +88,11 @@ add_custom_command(TARGET DiskServerApp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/tls/server.crt"
         "$<TARGET_FILE_DIR:DiskServerApp>/tls/server.crt"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:DiskServerApp>/updates"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/updates/client_version.ini.example"
+        "$<TARGET_FILE_DIR:DiskServerApp>/updates/client_version.ini.example"
 )
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/diskserver.ini")

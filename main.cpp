@@ -18,6 +18,7 @@ int main(int argc, char *argv[])
     const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     const QString defaultStorageRoot = QDir(appDir).filePath(QStringLiteral("storage"));
     const QString defaultLogPath = QDir(appDir).filePath(QStringLiteral("chat_history.txt"));
+    const QString defaultUpdateInfoPath = QDir(appDir).filePath(QStringLiteral("updates/client_version.ini"));
     const QString defaultListenHost = QStringLiteral("127.0.0.1");
     const quint16 defaultListenPort = 1234;
     const bool defaultTlsEnabled = false;
@@ -37,6 +38,7 @@ int main(int argc, char *argv[])
         settings.setValue(QStringLiteral("network/tlsKeyPath"), defaultTlsKeyPath);
         settings.setValue(QStringLiteral("paths/storageRoot"), defaultStorageRoot);
         settings.setValue(QStringLiteral("paths/chatLogPath"), defaultLogPath);
+        settings.setValue(QStringLiteral("updates/clientVersionInfo"), defaultUpdateInfoPath);
         settings.setValue(QStringLiteral("database/host"), defaultDbHost);
         settings.setValue(QStringLiteral("database/port"), defaultDbPort);
         settings.setValue(QStringLiteral("database/user"), defaultDbUser);
@@ -49,6 +51,8 @@ int main(int argc, char *argv[])
                                           settings.value(QStringLiteral("paths/storageRoot"), defaultStorageRoot).toString());
     const QString logPath = env.value(QStringLiteral("DISKSERVER_LOG_PATH"),
                                       settings.value(QStringLiteral("paths/chatLogPath"), defaultLogPath).toString());
+    const QString updateInfoPath = env.value(QStringLiteral("DISKSERVER_UPDATE_INFO"),
+                                             settings.value(QStringLiteral("updates/clientVersionInfo"), defaultUpdateInfoPath).toString());
     const QString listenHost = settings.value(QStringLiteral("network/listenHost"), defaultListenHost).toString().trimmed();
     const quint16 listenPort =
         static_cast<quint16>(settings.value(QStringLiteral("network/listenPort"), defaultListenPort).toUInt());
@@ -81,6 +85,7 @@ int main(int argc, char *argv[])
             << "tlsEnabled=" << tlsEnabled
             << "tlsCertPath=" << tlsCertPath
             << "storageRoot=" << storageRoot
+            << "updateInfoPath=" << updateInfoPath
             << "dbHost=" << dbHost
             << "dbUser=" << dbUser
             << "dbName=" << dbName;
@@ -95,7 +100,8 @@ int main(int argc, char *argv[])
                          dbUser,
                          dbPassword,
                          dbName,
-                         dbPort);
+                         dbPort,
+                         updateInfoPath);
     if(p->open()){
         cout<<"Server is running"<<endl;
     }else{

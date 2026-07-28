@@ -31,11 +31,11 @@ bool CMySql::ConnectMySql(const char *host,const char *user,const char *pass,con
 
 bool CMySql::ConnectPostgreSql(const char* host, int port, const char* user, const char* pass, const char* db)
 {
-    m_pDataBase.setHostName(QString::fromLocal8Bit(host));
+    m_pDataBase.setHostName(QString::fromUtf8(host));
     m_pDataBase.setPort(port);
-    m_pDataBase.setUserName(QString::fromLocal8Bit(user));
-    m_pDataBase.setPassword(QString::fromLocal8Bit(pass));
-    m_pDataBase.setDatabaseName(QString::fromLocal8Bit(db));
+    m_pDataBase.setUserName(QString::fromUtf8(user));
+    m_pDataBase.setPassword(QString::fromUtf8(pass));
+    m_pDataBase.setDatabaseName(QString::fromUtf8(db));
     return m_pDataBase.open();
 }
 
@@ -46,7 +46,7 @@ bool CMySql::SelectMySql(const char* szSql,int nColumn,list<string>& lstStr)
     }
 
     m_lastQuery = QSqlQuery(m_pDataBase);
-    if (!m_lastQuery.exec(QString::fromLocal8Bit(szSql))) {
+    if (!m_lastQuery.exec(QString::fromUtf8(szSql))) {
         return false;
     }
 
@@ -56,7 +56,7 @@ bool CMySql::SelectMySql(const char* szSql,int nColumn,list<string>& lstStr)
             if (value.isNull()) {
                 lstStr.push_back("null");
             } else {
-                lstStr.push_back(value.toString().toStdString());
+                lstStr.push_back(value.toString().toUtf8().constData());
             }
         }
     }
@@ -71,7 +71,7 @@ bool CMySql::UpdateMySql(const char* szSql)
     }
 
     m_lastQuery = QSqlQuery(m_pDataBase);
-    if (!m_lastQuery.exec(QString::fromLocal8Bit(szSql))) {
+    if (!m_lastQuery.exec(QString::fromUtf8(szSql))) {
         return false;
     }
 

@@ -2,6 +2,7 @@
 
 #include <QFileInfo>
 #include <QSqlQuery>
+#include <QStringList>
 #include <QTextStream>
 
 TCPKernel* TCPKernel::m_pKernel = nullptr;
@@ -9,7 +10,43 @@ TCPKernel* TCPKernel::m_pKernel = nullptr;
 namespace {
 QString safeText(const char* value)
 {
-    return QString::fromLocal8Bit(value).trimmed();
+    return QString::fromUtf8(value ? value : "").trimmed();
+}
+
+void copyProtocolText(char* dest, qsizetype destSize, const QString& value)
+{
+    if (!dest || destSize <= 0) {
+        return;
+    }
+    const QByteArray bytes = value.toUtf8();
+    qstrncpy(dest, bytes.constData(), destSize);
+}
+
+int compareVersions(const QString& left, const QString& right)
+{
+    const QStringList leftParts = left.split('.');
+    const QStringList rightParts = right.split('.');
+    const int count = qMax(leftParts.size(), rightParts.size());
+    for (int i = 0; i < count; ++i) {
+        bool leftOk = true;
+        bool rightOk = true;
+        const int leftValue = i < leftParts.size() ? leftParts.at(i).toInt(&leftOk) : 0;
+        const int rightValue = i < rightParts.size() ? rightParts.at(i).toInt(&rightOk) : 0;
+        if (!leftOk || !rightOk) {
+            const int textCompare = QString::compare(
+                i < leftParts.size() ? leftParts.at(i) : QString(),
+                i < rightParts.size() ? rightParts.at(i) : QString(),
+                Qt::CaseInsensitive);
+            if (textCompare != 0) {
+                return textCompare < 0 ? -1 : 1;
+            }
+            continue;
+        }
+        if (leftValue != rightValue) {
+            return leftValue < rightValue ? -1 : 1;
+        }
+    }
+    return 0;
 }
 
 bool userOwnsFile(CMySql* sql, long long userId, long long fileId)
@@ -40,7 +77,7 @@ QString userDisplayNameForFile(CMySql* sql, long long userId, long long fileId)
     if (!sql->SelectMySql(displaySql, 1, rows) || rows.empty()) {
         return {};
     }
-    const QString value = QString::fromStdString(rows.front()).trimmed();
+    const QString value = QString::fromUtf8(rows.front().c_str()).trimmed();
     if (value.compare(QStringLiteral("null"), Qt::CaseInsensitive) == 0) {
         return {};
     }
@@ -58,8 +95,9 @@ TCPKernel::TCPKernel()
     m_storageRootPath = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("storage"));
     m_logFilePath = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("chat_history.txt"));
     m_runtimeLogFilePath = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("server-runtime.log"));
+    m_updateInfoPath = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("updates/client_version.ini"));
     QDir().mkpath(m_storageRootPath);
-    const QByteArray rootBytes = QDir::toNativeSeparators(m_storageRootPath).toLocal8Bit() + QByteArray(1, '/');
+    const QByteArray rootBytes = QDir::toNativeSeparators(m_storageRootPath).toUtf8() + QByteArray(1, '/');
     qstrncpy(m_szSystemPath, rootBytes.constData(), DISKSERVER_PATH_BUFFER);
 }
 
@@ -81,7 +119,8 @@ void TCPKernel::applyRuntimePaths(const QString& storageRoot,
                                   const QString& dbUser,
                                   const QString& dbPassword,
                                   const QString& dbName,
-                                  int dbPort)
+                                  int dbPort,
+                                  const QString& updateInfoPath)
 {
     if (!storageRoot.trimmed().isEmpty()) {
         m_storageRootPath = storageRoot.trimmed();
@@ -116,9 +155,12 @@ void TCPKernel::applyRuntimePaths(const QString& storageRoot,
     if (dbPort > 0) {
         m_dbPort = dbPort;
     }
+    if (!updateInfoPath.trimmed().isEmpty()) {
+        m_updateInfoPath = updateInfoPath.trimmed();
+    }
 
     QDir().mkpath(m_storageRootPath);
-    const QByteArray rootBytes = QDir::toNativeSeparators(m_storageRootPath).toLocal8Bit() + QByteArray(1, '/');
+    const QByteArray rootBytes = QDir::toNativeSeparators(m_storageRootPath).toUtf8() + QByteArray(1, '/');
     qstrncpy(m_szSystemPath, rootBytes.constData(), DISKSERVER_PATH_BUFFER);
 }
 
@@ -127,7 +169,7 @@ bool TCPKernel::open()
     if (auto* tcpNet = dynamic_cast<TCPNet*>(m_pTCPNet)) {
         tcpNet->configureTls(m_tlsEnabled, m_tlsCertPath, m_tlsKeyPath);
     }
-    const QByteArray listenHostBytes = m_listenHost.toLocal8Bit();
+    const QByteArray listenHostBytes = m_listenHost.toUtf8();
     if (!m_pTCPNet->initNetWork(listenHostBytes.constData(), m_listenPort)) {
         qWarning() << "DiskServer listen failed on" << m_listenHost << ":" << m_listenPort;
         writeRuntimeLog(QStringLiteral("listen failed on %1:%2").arg(m_listenHost).arg(m_listenPort));
@@ -135,11 +177,11 @@ bool TCPKernel::open()
     }
     writeRuntimeLog(QStringLiteral("listen success on %1:%2").arg(m_listenHost).arg(m_listenPort));
 
-    if (!m_pSQL->ConnectPostgreSql(m_dbHost.toLocal8Bit().constData(),
+    if (!m_pSQL->ConnectPostgreSql(m_dbHost.toUtf8().constData(),
                                    m_dbPort,
-                                   m_dbUser.toLocal8Bit().constData(),
-                                   m_dbPassword.toLocal8Bit().constData(),
-                                   m_dbName.toLocal8Bit().constData())) {
+                                   m_dbUser.toUtf8().constData(),
+                                   m_dbPassword.toUtf8().constData(),
+                                   m_dbName.toUtf8().constData())) {
         qWarning() << "DiskServer database connect failed:" << m_pSQL->lastErrorText();
         writeRuntimeLog(QStringLiteral("database connect failed: %1").arg(m_pSQL->lastErrorText()));
         return false;
@@ -254,6 +296,9 @@ void TCPKernel::dealData(ConnectionId sock, char* szbuf)
     case _default_protocol_transfercontrol_request:
         TransferControl_Request(sock, szbuf);
         break;
+    case _default_protocol_version_check_request:
+        VersionCheck_Request(sock, szbuf);
+        break;
     default:
         break;
     }
@@ -271,8 +316,8 @@ void TCPKernel::Register_Request(ConnectionId sock, char* szbuf)
     char sql[SQLLEN * 2] = {0};
     snprintf(sql, sizeof(sql),
              "insert into user_account(u_name,u_password,u_tel) values ('%s','%s',%lld) on conflict (u_tel) do nothing",
-             userName.toLocal8Bit().constData(),
-             password.toLocal8Bit().constData(),
+             userName.toUtf8().constData(),
+             password.toUtf8().constData(),
              request->m_tel);
 
     if (m_pSQL->UpdateMySql(sql)) {
@@ -308,7 +353,7 @@ void TCPKernel::Login_Request(ConnectionId sock, char* szbuf)
     char sql[SQLLEN] = {0};
     snprintf(sql, sizeof(sql),
              "select u_id,u_password from user_account where u_name = '%s'",
-             userName.toLocal8Bit().constData());
+             userName.toUtf8().constData());
 
     list<string> rows;
     if (m_pSQL->SelectMySql(sql, 2, rows) && rows.size() >= 2) {
@@ -366,7 +411,7 @@ void TCPKernel::GetFileList_Request(ConnectionId sock, char* szbuf)
         rows.pop_front();
         const string fileMd5 = rows.front();
         rows.pop_front();
-        const QString filePath = QString::fromStdString(rows.front());
+        const QString filePath = QString::fromUtf8(rows.front().c_str());
         rows.pop_front();
 
         char fileState = _filestate_ready;
@@ -423,13 +468,13 @@ void TCPKernel::UploadFileInfo_Request(ConnectionId sock, char* szbuf)
     char sql[1024] = {0};
     snprintf(sql, sizeof(sql),
              "select f_id,f_path,f_size,coalesce(f_count,1) from file_info where f_md5 = '%s'",
-             fileMd5.toLocal8Bit().constData());
+             fileMd5.toUtf8().constData());
 
     list<string> rows;
     if (m_pSQL->SelectMySql(sql, 4, rows) && rows.size() >= 4) {
         const long long fileId = atoll(rows.front().c_str());
         rows.pop_front();
-        const QString filePath = QString::fromStdString(rows.front());
+        const QString filePath = QString::fromUtf8(rows.front().c_str());
         rows.pop_front();
         const long long storedFileSize = atoll(rows.front().c_str());
         rows.pop_front();
@@ -515,10 +560,10 @@ void TCPKernel::UploadFileInfo_Request(ConnectionId sock, char* szbuf)
 
     snprintf(sql, sizeof(sql),
              "insert into file_info(f_name,f_size,f_path,f_md5,f_count) values('%s',%lld,'%s','%s',1)",
-             fileName.toLocal8Bit().constData(),
+             fileName.toUtf8().constData(),
              request->m_filesize,
-             m_pSQL->escapeString(QDir::toNativeSeparators(filePath)).toLocal8Bit().constData(),
-             fileMd5.toLocal8Bit().constData());
+             m_pSQL->escapeString(QDir::toNativeSeparators(filePath)).toUtf8().constData(),
+             fileMd5.toUtf8().constData());
 
     if (!m_pSQL->UpdateMySql(sql)) {
         writeRuntimeLog(QStringLiteral("upload info insert failed: sock=%1 userId=%2 fileName=%3")
@@ -628,7 +673,7 @@ void TCPKernel::DownloadFileInfo_Request(ConnectionId sock, char* szbuf)
              "from file_info fi join user_file uf on fi.f_id = uf.f_id "
              "where uf.u_id = %lld and fi.f_md5 = '%s'",
              request->m_userid,
-             fileMd5.toLocal8Bit().constData());
+             fileMd5.toUtf8().constData());
 
     list<string> rows;
     if (!(m_pSQL->SelectMySql(sql, 4, rows) && rows.size() >= 4)) {
@@ -638,11 +683,11 @@ void TCPKernel::DownloadFileInfo_Request(ConnectionId sock, char* szbuf)
 
     const long long fileId = atoll(rows.front().c_str());
     rows.pop_front();
-    const QString fileName = QString::fromStdString(rows.front());
+    const QString fileName = QString::fromUtf8(rows.front().c_str());
     rows.pop_front();
     const long long fileSize = atoll(rows.front().c_str());
     rows.pop_front();
-    const QString filePath = QString::fromStdString(rows.front());
+    const QString filePath = QString::fromUtf8(rows.front().c_str());
 
     if (m_mapFileToFileInfo.find(fileId) != m_mapFileToFileInfo.end()) {
         response.m_fileId = fileId;
@@ -670,7 +715,7 @@ void TCPKernel::DownloadFileInfo_Request(ConnectionId sock, char* szbuf)
     }
 
     m_downloadByFile[fileId].insert(sock, info);
-    qstrncpy(response.m_szFileName, fileName.toLocal8Bit().constData(), MAXSIZE);
+    qstrncpy(response.m_szFileName, fileName.toUtf8().constData(), MAXSIZE);
     qstrncpy(response.m_szFileMD5, request->m_szFileMD5, MAXSIZE);
     response.m_fileId = fileId;
     response.m_pos = qBound<qint64>(0, request->m_pos, fileSize);
@@ -732,7 +777,7 @@ void TCPKernel::DeleteFile_Request(ConnectionId sock, char* szbuf)
              "select fi.f_id,fi.f_path from file_info fi join user_file uf on fi.f_id = uf.f_id "
              "where uf.u_id = %lld and fi.f_md5 = '%s'",
              request->m_userId,
-             fileMd5.toLocal8Bit().constData());
+             fileMd5.toUtf8().constData());
 
     list<string> rows;
     if (!(m_pSQL->SelectMySql(sql, 2, rows) && rows.size() >= 2)) {
@@ -742,7 +787,7 @@ void TCPKernel::DeleteFile_Request(ConnectionId sock, char* szbuf)
 
     const long long fileId = atoll(rows.front().c_str());
     rows.pop_front();
-    const QString filePath = QString::fromStdString(rows.front());
+    const QString filePath = QString::fromUtf8(rows.front().c_str());
     const QString displayName = userDisplayNameForFile(m_pSQL, request->m_userId, fileId);
 
     char mappingSql[512] = {0};
@@ -816,7 +861,7 @@ void TCPKernel::RenameFile_Request(ConnectionId sock, char* szbuf)
              "select fi.f_id from file_info fi join user_file uf on fi.f_id = uf.f_id "
              "where uf.u_id = %lld and fi.f_md5 = '%s'",
              request->m_userId,
-             fileMd5.toLocal8Bit().constData());
+             fileMd5.toUtf8().constData());
 
     list<string> rows;
     if (!(m_pSQL->SelectMySql(sql, 1, rows) && !rows.empty())) {
@@ -828,7 +873,7 @@ void TCPKernel::RenameFile_Request(ConnectionId sock, char* szbuf)
     char updateSql[1024] = {0};
     snprintf(updateSql, sizeof(updateSql),
              "update user_file set display_name = '%s' where u_id = %lld and f_id = %lld",
-             newFileName.toLocal8Bit().constData(),
+             newFileName.toUtf8().constData(),
              request->m_userId,
              fileId);
 
@@ -898,9 +943,9 @@ void TCPKernel::PrivateChat_Request(ConnectionId sock, char* szbuf)
              "values(%lld, %lld, '%s', '%s', '%s')",
              request->m_senderId,
              request->m_receiverId,
-             senderName.toLocal8Bit().constData(),
-             receiverName.toLocal8Bit().constData(),
-             messageText.toLocal8Bit().constData());
+             senderName.toUtf8().constData(),
+             receiverName.toUtf8().constData(),
+             messageText.toUtf8().constData());
     if (!m_pSQL->UpdateMySql(insertSql)) {
         writeRuntimeLog(QStringLiteral("private chat save failed: %1").arg(m_pSQL->lastErrorText()));
     }
@@ -967,13 +1012,13 @@ void TCPKernel::PrivateHistory_Request(ConnectionId sock, char* szbuf)
             rows.pop_front();
             item.m_receiverId = atoll(rows.front().c_str());
             rows.pop_front();
-            qstrncpy(item.m_senderName, QString::fromStdString(rows.front()).toLocal8Bit().constData(), MAXSIZE);
+            copyProtocolText(item.m_senderName, MAXSIZE, QString::fromUtf8(rows.front().c_str()));
             rows.pop_front();
-            qstrncpy(item.m_receiverName, QString::fromStdString(rows.front()).toLocal8Bit().constData(), MAXSIZE);
+            copyProtocolText(item.m_receiverName, MAXSIZE, QString::fromUtf8(rows.front().c_str()));
             rows.pop_front();
-            qstrncpy(item.m_createdAt, QString::fromStdString(rows.front()).toLocal8Bit().constData(), MAXSIZE);
+            copyProtocolText(item.m_createdAt, MAXSIZE, QString::fromUtf8(rows.front().c_str()));
             rows.pop_front();
-            qstrncpy(item.szbuf, QString::fromStdString(rows.front()).toLocal8Bit().constData(), MAXSENDMESSSAGE);
+            copyProtocolText(item.szbuf, MAXSENDMESSSAGE, QString::fromUtf8(rows.front().c_str()));
             rows.pop_front();
         }
     } else {
@@ -1009,7 +1054,7 @@ void TCPKernel::ProfileUpdate_Request(ConnectionId sock, char* szbuf)
         char checkSql[SQLLEN * 2] = {0};
         snprintf(checkSql, sizeof(checkSql),
                  "select u_id from user_account where u_name = '%s' and u_id <> %lld",
-                 safeName.toLocal8Bit().constData(),
+                 safeName.toUtf8().constData(),
                  request->m_userId);
         list<string> rows;
         if (m_pSQL->SelectMySql(checkSql, 1, rows) && !rows.empty()) {
@@ -1030,18 +1075,53 @@ void TCPKernel::ProfileUpdate_Request(ConnectionId sock, char* szbuf)
     const QString sql = QStringLiteral("update user_account set %1 where u_id = %2")
         .arg(assignments.join(QStringLiteral(",")))
         .arg(request->m_userId);
-    if (!m_pSQL->UpdateMySql(sql.toLocal8Bit().constData())) {
+    if (!m_pSQL->UpdateMySql(sql.toUtf8().constData())) {
         m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
         return;
     }
 
     const QString finalName = newNameRaw.isEmpty() ? userNameById(request->m_userId) : newNameRaw;
     response.m_szResult = _profile_update_success;
-    qstrncpy(response.m_szName, finalName.toLocal8Bit().constData(), MAXSIZE);
+    copyProtocolText(response.m_szName, MAXSIZE, finalName);
     writeRuntimeLog(QStringLiteral("profile updated: sock=%1 userId=%2 name=%3")
                         .arg(sock).arg(request->m_userId).arg(finalName));
     m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
     sendOnlineUsersToAll();
+}
+
+void TCPKernel::VersionCheck_Request(ConnectionId sock, char* szbuf)
+{
+    auto* request = reinterpret_cast<STRU_VERSION_CHECK_RQ*>(szbuf);
+    if (!request) {
+        return;
+    }
+
+    const QString currentVersion = safeText(request->m_currentVersion);
+    QSettings updateSettings(m_updateInfoPath, QSettings::IniFormat);
+    const QString latestVersion =
+        updateSettings.value(QStringLiteral("client/latestVersion"), currentVersion).toString().trimmed();
+    const QString downloadUrl =
+        updateSettings.value(QStringLiteral("client/downloadUrl")).toString().trimmed();
+    const QString releaseNotes =
+        updateSettings.value(QStringLiteral("client/releaseNotes")).toString().trimmed();
+    const bool forceUpdate =
+        updateSettings.value(QStringLiteral("client/forceUpdate"), false).toBool();
+
+    STRU_VERSION_CHECK_RS response;
+    response.m_updateAvailable = compareVersions(currentVersion, latestVersion) < 0 ? 1 : 0;
+    response.m_forceUpdate = forceUpdate ? 1 : 0;
+    copyProtocolText(response.m_currentVersion, VERSION_SIZE, currentVersion);
+    copyProtocolText(response.m_latestVersion, VERSION_SIZE, latestVersion);
+    copyProtocolText(response.m_downloadUrl, UPDATE_URL_SIZE, downloadUrl);
+    copyProtocolText(response.m_releaseNotes, UPDATE_NOTES_SIZE, releaseNotes);
+    m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
+
+    writeRuntimeLog(QStringLiteral("version check: sock=%1 current=%2 latest=%3 update=%4 info=%5")
+                        .arg(sock)
+                        .arg(currentVersion)
+                        .arg(latestVersion)
+                        .arg(response.m_updateAvailable)
+                        .arg(m_updateInfoPath));
 }
 
 void TCPKernel::TransferControl_Request(ConnectionId sock, char* szbuf)
@@ -1222,7 +1302,7 @@ void TCPKernel::ensureUserFileMapping(long long userId, long long fileId, const 
         char mappingSql[1024] = {0};
         const QByteArray displayNameSql = safeDisplayName.isEmpty()
             ? QByteArray("null")
-            : QStringLiteral("'%1'").arg(safeDisplayName).toLocal8Bit();
+            : QStringLiteral("'%1'").arg(safeDisplayName).toUtf8();
         snprintf(mappingSql, sizeof(mappingSql),
                  "insert into user_file(u_id,f_id,display_name) values(%lld,%lld,%s) on conflict do nothing",
                  userId,
@@ -1233,7 +1313,7 @@ void TCPKernel::ensureUserFileMapping(long long userId, long long fileId, const 
         char updateSql[1024] = {0};
         snprintf(updateSql, sizeof(updateSql),
                  "update user_file set display_name = '%s' where u_id = %lld and f_id = %lld and (display_name is null or display_name = '')",
-                 safeDisplayName.toLocal8Bit().constData(),
+                 safeDisplayName.toUtf8().constData(),
                  userId,
                  fileId);
         m_pSQL->UpdateMySql(updateSql);
@@ -1290,7 +1370,7 @@ QString TCPKernel::userNameById(long long userId)
              userId);
     list<string> rows;
     if (m_pSQL->SelectMySql(sql, 1, rows) && !rows.empty()) {
-        return QString::fromStdString(rows.front());
+        return QString::fromUtf8(rows.front().c_str());
     }
     return QString();
 }
@@ -1309,7 +1389,7 @@ void TCPKernel::fillOnlineUsersResponse(STRU_ONLINE_USERS_RS& response, long lon
     while (rows.size() >= 2 && response.m_userCount < ONLINEUSERNUM) {
         const long long userId = atoll(rows.front().c_str());
         rows.pop_front();
-        const QString userName = QString::fromStdString(rows.front());
+        const QString userName = QString::fromUtf8(rows.front().c_str());
         rows.pop_front();
         if (userId <= 0 || userId == requesterId) {
             continue;
@@ -1317,7 +1397,7 @@ void TCPKernel::fillOnlineUsersResponse(STRU_ONLINE_USERS_RS& response, long lon
         OnlineUserInfo& item = response.m_users[response.m_userCount++];
         item.m_userId = userId;
         item.m_online = m_userConnections.contains(userId) ? 1 : 0;
-        qstrncpy(item.m_userName, userName.toLocal8Bit().constData(), MAXSIZE);
+        copyProtocolText(item.m_userName, MAXSIZE, userName);
     }
 }
 
@@ -1341,8 +1421,8 @@ void TCPKernel::notifyUserFileSync(long long userId, char action, const QString&
     STRU_FILESYNC_RS response;
     response.m_userId = userId;
     response.m_action = action;
-    qstrncpy(response.m_szFileMD5, fileMd5.toLocal8Bit().constData(), MAXSIZE);
-    qstrncpy(response.m_szFileName, fileName.toLocal8Bit().constData(), NAMESIZE);
+    qstrncpy(response.m_szFileMD5, fileMd5.toUtf8().constData(), MAXSIZE);
+    qstrncpy(response.m_szFileName, fileName.toUtf8().constData(), NAMESIZE);
 
     const QSet<ConnectionId> sockets = m_userConnections.value(userId);
     for (ConnectionId sock : sockets) {

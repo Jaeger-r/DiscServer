@@ -65,7 +65,8 @@ public:
                            const QString& dbUser,
                            const QString& dbPassword,
                            const QString& dbName,
-                           int dbPort = 5432);
+                           int dbPort = 5432,
+                           const QString& updateInfoPath = QString());
 public:
     void Register_Request(ConnectionId sock,char* szbuf);
     void Login_Request(ConnectionId sock,char* szbuf);
@@ -82,6 +83,7 @@ public:
     void PrivateHistory_Request(ConnectionId sock, char* szbuf);
     void ProfileUpdate_Request(ConnectionId sock, char* szbuf);
     void TransferControl_Request(ConnectionId sock, char* szbuf);
+    void VersionCheck_Request(ConnectionId sock, char* szbuf);
 public:
     //单例模式--不支持线程安全
     //饿汉模式，支持线程安全 高效
@@ -126,6 +128,7 @@ private:
     QString m_dbPassword = QStringLiteral("zhangwenjie172");
     QString m_dbName = QStringLiteral("netdisk");
     int m_dbPort = 5432;
+    QString m_updateInfoPath;
     std::map<long long,uploadFileInfo *> m_mapFileToFileInfo;
     QHash<long long, QHash<ConnectionId, downloadFileInfo*>> m_downloadByFile;
     QHash<long long, QSet<ConnectionId>> m_userConnections;
