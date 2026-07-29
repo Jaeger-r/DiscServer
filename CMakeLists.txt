@@ -93,6 +93,10 @@ add_custom_command(TARGET DiskServerApp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/updates/client_version.ini.example"
         "$<TARGET_FILE_DIR:DiskServerApp>/updates/client_version.ini.example"
+    COMMAND ${CMAKE_COMMAND}
+        -DINPUT_FILE="${CMAKE_CURRENT_SOURCE_DIR}/updates/client_version.ini.example"
+        -DOUTPUT_FILE="$<TARGET_FILE_DIR:DiskServerApp>/updates/client_version.ini"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ensure_client_version_ini.cmake"
 )
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/diskserver.ini")

@@ -73,6 +73,7 @@
 #define VERSION_SIZE 32
 #define UPDATE_URL_SIZE 256
 #define UPDATE_NOTES_SIZE 512
+#define UPDATE_SHA256_SIZE 65
 #define _register_err 0
 #define _register_success 1
 
@@ -416,6 +417,7 @@ struct STRU_VERSION_CHECK_RS:public STRU_BASE{
     char m_latestVersion[VERSION_SIZE];
     char m_downloadUrl[UPDATE_URL_SIZE];
     char m_releaseNotes[UPDATE_NOTES_SIZE];
+    char m_sha256[UPDATE_SHA256_SIZE];
 };
 //传输控制
 struct STRU_TRANSFERCONTROL_RQ:public STRU_BASE{

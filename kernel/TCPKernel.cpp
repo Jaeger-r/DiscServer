@@ -1104,6 +1104,8 @@ void TCPKernel::VersionCheck_Request(ConnectionId sock, char* szbuf)
         updateSettings.value(QStringLiteral("client/downloadUrl")).toString().trimmed();
     const QString releaseNotes =
         updateSettings.value(QStringLiteral("client/releaseNotes")).toString().trimmed();
+    const QString sha256 =
+        updateSettings.value(QStringLiteral("client/sha256")).toString().trimmed();
     const bool forceUpdate =
         updateSettings.value(QStringLiteral("client/forceUpdate"), false).toBool();
 
@@ -1114,6 +1116,7 @@ void TCPKernel::VersionCheck_Request(ConnectionId sock, char* szbuf)
     copyProtocolText(response.m_latestVersion, VERSION_SIZE, latestVersion);
     copyProtocolText(response.m_downloadUrl, UPDATE_URL_SIZE, downloadUrl);
     copyProtocolText(response.m_releaseNotes, UPDATE_NOTES_SIZE, releaseNotes);
+    copyProtocolText(response.m_sha256, UPDATE_SHA256_SIZE, sha256);
     m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
 
     writeRuntimeLog(QStringLiteral("version check: sock=%1 current=%2 latest=%3 update=%4 info=%5")
