@@ -4,6 +4,10 @@
 #include <QSqlQuery>
 #include <QStringList>
 #include <QTextStream>
+#include <QTimer>
+
+#include "../game/DefenseGameServer.h"
+#include "../game/EarthWorld.h"
 
 TCPKernel* TCPKernel::m_pKernel = nullptr;
 
@@ -89,6 +93,13 @@ TCPKernel::TCPKernel()
 {
     m_pTCPNet = new TCPNet;
     m_pSQL = new CMySql;
+    m_earthWorld = new EarthWorld;
+    bool worldIdValid = false;
+    const int configuredWorldId = qEnvironmentVariableIntValue(
+        "DISKSERVER_GAME_WORLD_ID", &worldIdValid);
+    if (worldIdValid && configuredWorldId > 0) {
+        m_defaultDefenseWorldId = configuredWorldId;
+    }
     QObject::connect(dynamic_cast<TCPNet*>(m_pTCPNet), &TCPNet::socketDisconnected, [this](ConnectionId id) {
         handleDisconnected(id);
     });
@@ -104,6 +115,7 @@ TCPKernel::TCPKernel()
 TCPKernel::~TCPKernel()
 {
     close();
+    delete m_earthWorld;
     delete m_pTCPNet;
     delete m_pSQL;
 }
@@ -193,6 +205,24 @@ bool TCPKernel::open()
         return false;
     }
 
+    const QString earthDataPath = QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("earth"));
+    if (!m_earthWorld->initialize(earthDataPath, m_pSQL)) {
+        qWarning() << "DiskServer Earth map data initialization failed:" << earthDataPath;
+        writeRuntimeLog(QStringLiteral("Earth map data initialization failed: %1")
+                            .arg(earthDataPath));
+    } else {
+        writeRuntimeLog(QStringLiteral("Earth map ready: data=%1 cell=1km chunk=%2x%2")
+                            .arg(earthDataPath).arg(EARTH_CHUNK_SIZE));
+    }
+
+    const QPoint defaultEarthPosition = m_earthWorld->lonLatToWorldCell(121.4737, 31.2304);
+    if (!ensureDefenseGame(defaultEarthPosition)) {
+        qWarning() << "DiskServer defense game initialization failed";
+        writeRuntimeLog(QStringLiteral("defense game initialization failed"));
+        return false;
+    }
+
     outFile.open(QDir::toNativeSeparators(m_logFilePath).toStdString(), ios::app);
     if (!outFile.is_open()) {
         qWarning() << "DiskServer chat log open failed:" << m_logFilePath;
@@ -208,6 +238,15 @@ bool TCPKernel::open()
 
 void TCPKernel::close()
 {
+    const QList<DefenseGameServer*> games = m_defenseGames.values();
+    m_defenseGames.clear();
+    m_connectionGames.clear();
+    for (DefenseGameServer* game : games) {
+        if (game) {
+            game->shutdown();
+            delete game;
+        }
+    }
     for (auto& pair : m_mapFileToFileInfo) {
         if (pair.second && pair.second->m_file) {
             pair.second->m_file->close();
@@ -299,9 +338,253 @@ void TCPKernel::dealData(ConnectionId sock, char* szbuf)
     case _default_protocol_version_check_request:
         VersionCheck_Request(sock, szbuf);
         break;
+    case _default_protocol_game_join_request:
+        GameJoin_Request(sock, szbuf);
+        break;
+    case _default_protocol_game_action_request:
+        GameAction_Request(sock, szbuf);
+        break;
+    case _default_protocol_earth_chunk_request:
+        EarthChunk_Request(sock, szbuf);
+        break;
+    case _default_protocol_earth_overview_request:
+        EarthOverview_Request(sock, szbuf);
+        break;
     default:
         break;
     }
+}
+
+void TCPKernel::GameJoin_Request(ConnectionId sock, char* szbuf)
+{
+    if (!m_connectionUsers.contains(sock)) {
+        return;
+    }
+    const long long userId = m_connectionUsers.value(sock);
+    const auto& request = *reinterpret_cast<STRU_GAME_JOIN_RQ*>(szbuf);
+    if (request.m_userId != userId) {
+        writeRuntimeLog(QStringLiteral("game join rejected: socket/user mismatch sock=%1").arg(sock));
+        return;
+    }
+    DefenseGameServer* game = ensureDefenseGame(m_earthWorld->playerPosition(userId));
+    if (!game) {
+        return;
+    }
+    if (DefenseGameServer* previous = m_connectionGames.value(sock, nullptr);
+        previous && previous != game) {
+        previous->handleDisconnected(sock);
+        unloadDefenseGameIfIdle(previous);
+    }
+    m_connectionGames.insert(sock, game);
+    game->handleJoin(sock, userId, userNameById(userId), request);
+}
+
+int TCPKernel::defenseWorldIdForEarthPosition(const QPoint& earthPosition) const
+{
+    const QPoint defaultPosition = m_earthWorld
+        ? m_earthWorld->lonLatToWorldCell(121.4737, 31.2304) : QPoint(-1, -1);
+    const QPoint battleRegion = EarthWorld::battleRegionForPosition(earthPosition);
+    const QPoint defaultBattleRegion = EarthWorld::battleRegionForPosition(defaultPosition);
+    if (battleRegion == defaultBattleRegion) {
+        return m_defaultDefenseWorldId;
+    }
+    constexpr int kEarthBattleWorldBase = 700000000;
+    constexpr int kEarthBattleRegionColumns =
+        (EARTH_WORLD_WIDTH + EARTH_BATTLE_REGION_SIZE_CELLS - 1)
+        / EARTH_BATTLE_REGION_SIZE_CELLS;
+    return kEarthBattleWorldBase
+        + battleRegion.y() * kEarthBattleRegionColumns + battleRegion.x();
+}
+
+DefenseGameServer* TCPKernel::ensureDefenseGame(const QPoint& earthPosition)
+{
+    if (!m_pSQL || !m_pTCPNet || earthPosition.x() < 0 || earthPosition.y() < 0
+        || earthPosition.x() >= EARTH_WORLD_WIDTH
+        || earthPosition.y() >= EARTH_WORLD_HEIGHT) {
+        return nullptr;
+    }
+    const int worldId = defenseWorldIdForEarthPosition(earthPosition);
+    if (DefenseGameServer* existing = m_defenseGames.value(worldId, nullptr)) {
+        return existing;
+    }
+
+    auto* game = new DefenseGameServer;
+    game->setWorldId(worldId);
+    game->setDependencies(m_pSQL, m_pTCPNet);
+    game->setMapTransitionHandler(
+        [this, game](ConnectionId socket, qint64 userId, int directionX, int directionY) {
+            return transitionDefensePlayer(game, socket, userId, directionX, directionY);
+        });
+    if (!game->initialize()) {
+        delete game;
+        return nullptr;
+    }
+    m_defenseGames.insert(worldId, game);
+    writeRuntimeLog(QStringLiteral("defense world loaded: worldId=%1 earth=%2,%3")
+                        .arg(worldId).arg(earthPosition.x()).arg(earthPosition.y()));
+    return game;
+}
+
+bool TCPKernel::transitionDefensePlayer(DefenseGameServer* source,
+                                        ConnectionId socket,
+                                        qint64 userId,
+                                        int directionX,
+                                        int directionY)
+{
+    if (!source || m_connectionGames.value(socket, nullptr) != source
+        || (qAbs(directionX) + qAbs(directionY) != 1)) {
+        return false;
+    }
+    const QPoint currentEarthPosition = m_earthWorld->playerPosition(userId);
+    const QPoint earthDelta(directionX * EARTH_BATTLE_REGION_SIZE_CELLS,
+                            directionY * EARTH_BATTLE_REGION_SIZE_CELLS);
+    const QPoint targetEarthPosition = currentEarthPosition + earthDelta;
+    if (targetEarthPosition.x() < 0 || targetEarthPosition.y() < 0
+        || targetEarthPosition.x() >= EARTH_WORLD_WIDTH
+        || targetEarthPosition.y() >= EARTH_WORLD_HEIGHT) {
+        return false;
+    }
+    DefenseGameServer* destination = ensureDefenseGame(targetEarthPosition);
+    if (!destination || destination == source) {
+        return false;
+    }
+
+    QList<ConnectionId> userGameSockets;
+    for (auto it = m_connectionGames.constBegin(); it != m_connectionGames.constEnd(); ++it) {
+        if (it.value() == source && m_connectionUsers.value(it.key(), 0) == userId) {
+            userGameSockets.append(it.key());
+        }
+    }
+    if (userGameSockets.isEmpty()) {
+        return false;
+    }
+
+    QPoint updatedPosition;
+    if (!m_earthWorld->movePlayerPosition(userId, earthDelta.x(), earthDelta.y(),
+                                          &updatedPosition)) {
+        return false;
+    }
+    DefenseGameServer::PlayerTransferState transfer;
+    if (!source->takePlayerForTransition(socket, userId, transfer)) {
+        m_earthWorld->movePlayerPosition(userId, -earthDelta.x(), -earthDelta.y(), nullptr);
+        return false;
+    }
+
+    const QString userName = userNameById(userId);
+    destination->acceptPlayerTransition(userGameSockets.first(), userId, userName,
+                                        transfer, directionX, directionY);
+    for (int index = 1; index < userGameSockets.size(); ++index) {
+        STRU_GAME_JOIN_RQ join;
+        join.m_userId = userId;
+        join.m_colorR = transfer.color.red();
+        join.m_colorG = transfer.color.green();
+        join.m_colorB = transfer.color.blue();
+        destination->handleJoin(userGameSockets.at(index), userId, userName, join);
+    }
+    for (ConnectionId userSocket : userGameSockets) {
+        m_connectionGames.insert(userSocket, destination);
+        STRU_EARTH_CHUNK_RQ earthRequest;
+        earthRequest.m_userId = userId;
+        earthRequest.m_chunkX = updatedPosition.x() / EARTH_CHUNK_SIZE;
+        earthRequest.m_chunkY = updatedPosition.y() / EARTH_CHUNK_SIZE;
+        EarthChunk_Request(userSocket, reinterpret_cast<char*>(&earthRequest));
+    }
+    writeRuntimeLog(QStringLiteral(
+        "player crossed battle boundary: userId=%1 fromWorld=%2 toWorld=%3 earth=%4,%5")
+        .arg(userId).arg(source->worldId()).arg(destination->worldId())
+        .arg(updatedPosition.x()).arg(updatedPosition.y()));
+    unloadDefenseGameIfIdle(source);
+    return true;
+}
+
+void TCPKernel::unloadDefenseGameIfIdle(DefenseGameServer* game)
+{
+    if (!game || game->hasSessions() || game->worldId() == m_defaultDefenseWorldId) {
+        return;
+    }
+    const int worldId = game->worldId();
+    if (m_defenseGames.value(worldId, nullptr) != game) {
+        return;
+    }
+    m_defenseGames.remove(worldId);
+    game->shutdown();
+    writeRuntimeLog(QStringLiteral("defense world unloaded: worldId=%1").arg(worldId));
+    game->deleteLater();
+}
+
+void TCPKernel::GameAction_Request(ConnectionId sock, char* szbuf)
+{
+    if (!m_connectionUsers.contains(sock)) {
+        return;
+    }
+    const long long userId = m_connectionUsers.value(sock);
+    const auto& request = *reinterpret_cast<STRU_GAME_ACTION_RQ*>(szbuf);
+    if (request.m_userId != userId) {
+        writeRuntimeLog(QStringLiteral("game action rejected: socket/user mismatch sock=%1").arg(sock));
+        return;
+    }
+    DefenseGameServer* game = m_connectionGames.value(sock, nullptr);
+    if (game) {
+        game->handleAction(sock, userId, request);
+    }
+}
+
+void TCPKernel::EarthChunk_Request(ConnectionId sock, char* szbuf)
+{
+    if (!m_earthWorld || !m_earthWorld->isReady() || !m_connectionUsers.contains(sock)) {
+        return;
+    }
+    const long long userId = m_connectionUsers.value(sock);
+    const auto& request = *reinterpret_cast<STRU_EARTH_CHUNK_RQ*>(szbuf);
+    if (request.m_userId != userId) {
+        writeRuntimeLog(QStringLiteral("Earth chunk rejected: socket/user mismatch sock=%1")
+                            .arg(sock));
+        return;
+    }
+
+    int chunkX = request.m_chunkX;
+    int chunkY = request.m_chunkY;
+    if (chunkX == -1 && chunkY == -1) {
+        const QPoint player = m_earthWorld->playerPosition(userId);
+        chunkX = player.x() / EARTH_CHUNK_SIZE;
+        chunkY = player.y() / EARTH_CHUNK_SIZE;
+    }
+
+    STRU_EARTH_CHUNK_RS response;
+    if (!m_earthWorld->makeChunkResponse(userId, chunkX, chunkY, response)) {
+        return;
+    }
+    const QByteArray compressed = qCompress(
+        reinterpret_cast<const uchar*>(&response), sizeof(response), 6);
+    QByteArray packet;
+    packet.reserve(compressed.size() + 1);
+    packet.append(char(_default_protocol_earth_chunk_compressed_send));
+    packet.append(compressed);
+    m_pTCPNet->sendData(sock, packet.constData(), packet.size());
+}
+
+void TCPKernel::EarthOverview_Request(ConnectionId sock, char* szbuf)
+{
+    if (!m_earthWorld || !m_earthWorld->isReady() || !m_connectionUsers.contains(sock)) {
+        return;
+    }
+    const qint64 userId = m_connectionUsers.value(sock);
+    const auto& request = *reinterpret_cast<STRU_EARTH_OVERVIEW_RQ*>(szbuf);
+    if (request.m_userId != userId) {
+        writeRuntimeLog(QStringLiteral("Earth overview rejected: socket/user mismatch sock=%1")
+                            .arg(sock));
+        return;
+    }
+    const QByteArray raw = m_earthWorld->overviewPayload();
+    if (raw.isEmpty()) {
+        return;
+    }
+    const QByteArray compressed = qCompress(raw, 6);
+    QByteArray packet;
+    packet.reserve(compressed.size() + 1);
+    packet.append(char(_default_protocol_earth_overview_compressed_send));
+    packet.append(compressed);
+    m_pTCPNet->sendData(sock, packet.constData(), packet.size());
 }
 
 void TCPKernel::Register_Request(ConnectionId sock, char* szbuf)
@@ -474,7 +757,7 @@ void TCPKernel::UploadFileInfo_Request(ConnectionId sock, char* szbuf)
     if (m_pSQL->SelectMySql(sql, 4, rows) && rows.size() >= 4) {
         const long long fileId = atoll(rows.front().c_str());
         rows.pop_front();
-        const QString filePath = QString::fromUtf8(rows.front().c_str());
+        QString filePath = QString::fromUtf8(rows.front().c_str());
         rows.pop_front();
         const long long storedFileSize = atoll(rows.front().c_str());
         rows.pop_front();
@@ -487,6 +770,10 @@ void TCPKernel::UploadFileInfo_Request(ConnectionId sock, char* szbuf)
         const bool physicalExists = existingFile.exists();
         const qint64 diskSize = physicalExists ? existingFile.size() : 0;
         const qint64 expectedSize = request->m_filesize > 0 ? request->m_filesize : storedFileSize;
+        const bool relocateMissingFile = !physicalExists;
+        if (relocateMissingFile) {
+            filePath = filePathForUser(request->m_userid, safeText(request->m_szFileName));
+        }
 
         if (m_mapFileToFileInfo.find(fileId) != m_mapFileToFileInfo.end()) {
             response.m_szResult = _fileinfo_busy;
@@ -531,10 +818,24 @@ void TCPKernel::UploadFileInfo_Request(ConnectionId sock, char* szbuf)
 
         QDir().mkpath(QFileInfo(filePath).absolutePath());
         if (!info->m_file->open(QIODevice::ReadWrite)) {
+            writeRuntimeLog(QStringLiteral("upload handshake file open failed: sock=%1 userId=%2 fileId=%3 path=%4 error=%5")
+                                .arg(sock).arg(request->m_userid).arg(fileId).arg(filePath, info->m_file->errorString()));
+            response.m_szResult = _fileinfo_busy;
             delete info->m_file;
             delete info;
             m_pTCPNet->sendData(sock, reinterpret_cast<char*>(&response), sizeof(response));
             return;
+        }
+
+        if (relocateMissingFile) {
+            char repairPathSql[2048] = {0};
+            snprintf(repairPathSql, sizeof(repairPathSql),
+                     "update file_info set f_path = '%s' where f_id = %lld",
+                     m_pSQL->escapeString(QDir::toNativeSeparators(filePath)).toUtf8().constData(),
+                     fileId);
+            m_pSQL->UpdateMySql(repairPathSql);
+            writeRuntimeLog(QStringLiteral("upload stale file path repaired: fileId=%1 path=%2")
+                                .arg(fileId).arg(filePath));
         }
 
         if (info->m_pos > 0) {
@@ -613,22 +914,32 @@ void TCPKernel::UploadFileBlock_Request(ConnectionId sock, char* szbuf)
     auto* request = reinterpret_cast<STRU_UPLOADFILEBLOCK_RQ*>(szbuf);
     auto it = m_mapFileToFileInfo.find(request->m_fileId);
     if (it == m_mapFileToFileInfo.end() || !it->second || !it->second->m_file) {
+        writeRuntimeLog(QStringLiteral("upload block rejected: missing session sock=%1 fileId=%2")
+                            .arg(sock).arg(request->m_fileId));
         return;
     }
 
     uploadFileInfo* info = it->second;
     if (info->m_sock != sock) {
+        writeRuntimeLog(QStringLiteral("upload block rejected: socket mismatch sock=%1 ownerSock=%2 fileId=%3")
+                            .arg(sock).arg(info->m_sock).arg(request->m_fileId));
         return;
     }
 
     if (!info->m_file->isOpen()) {
         if (!info->m_file->open(QIODevice::ReadWrite)) {
+            writeRuntimeLog(QStringLiteral("upload block rejected: reopen failed sock=%1 fileId=%2 error=%3")
+                                .arg(sock).arg(request->m_fileId).arg(info->m_file->errorString()));
             return;
         }
         info->m_file->seek(info->m_pos);
     }
 
     const qint64 written = info->m_file->write(request->m_szFileContent, request->m_fileNum);
+    if (written <= 0) {
+        writeRuntimeLog(QStringLiteral("upload block write failed: sock=%1 fileId=%2 bytes=%3 error=%4")
+                            .arg(sock).arg(request->m_fileId).arg(request->m_fileNum).arg(info->m_file->errorString()));
+    }
     if (written > 0) {
         info->m_pos += written;
     }
@@ -1248,7 +1559,16 @@ bool TCPKernel::ensureSchema()
                        "status smallint not null default 1,"
                        "created_at timestamp not null default current_timestamp,"
                        "primary key (u_id, friend_u_id),"
-                       "check (u_id <> friend_u_id))")
+                       "check (u_id <> friend_u_id))"),
+        QStringLiteral("create table if not exists defense_game_world ("
+                       "world_id integer primary key,"
+                       "state_json jsonb not null,"
+                       "updated_at timestamp not null default current_timestamp)"),
+        QStringLiteral("create table if not exists earth_player_position ("
+                       "user_id bigint primary key references user_account(u_id) on delete cascade,"
+                       "world_x integer not null,"
+                       "world_y integer not null,"
+                       "updated_at timestamp not null default current_timestamp)")
     };
 
     return m_pSQL->execStatements(statements);
@@ -1524,6 +1844,10 @@ void TCPKernel::cleanupDownload(ConnectionId sock, long long fileId)
 void TCPKernel::handleDisconnected(ConnectionId sock)
 {
     writeRuntimeLog(QStringLiteral("client disconnected: sock=%1").arg(sock));
+    if (DefenseGameServer* game = m_connectionGames.take(sock)) {
+        game->handleDisconnected(sock);
+        unloadDefenseGameIfIdle(game);
+    }
     unregisterOnlineSession(sock);
     sendOnlineUsersToAll();
     cleanupDownload(sock);

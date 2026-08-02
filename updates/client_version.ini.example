@@ -1,6 +1,6 @@
 [client]
-latestVersion=1.0.1
-downloadUrl=https://example.com/DiskClient-1.0.1.dmg
+latestVersion=1.0.1.0.0.1
+downloadUrl=http://43.142.3.188/releases/DiskClient-1.0.1.0.0.1.dmg
 sha256=
-releaseNotes=修复聊天编码并改进稳定性
+releaseNotes=新增游戏模块：安全区防线
 forceUpdate=false

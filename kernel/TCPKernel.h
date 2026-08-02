@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 #include <QFile>
 #include <QHash>
+#include <QPoint>
 #include <QSet>
 #include <QSettings>
 #include <QTextStream>
@@ -43,6 +44,9 @@ struct downloadFileInfo {
 using namespace std;
 
 constexpr int DISKSERVER_PATH_BUFFER = 1024;
+
+class DefenseGameServer;
+class EarthWorld;
 
 class TCPKernel : public IKernel
 {
@@ -84,6 +88,10 @@ public:
     void ProfileUpdate_Request(ConnectionId sock, char* szbuf);
     void TransferControl_Request(ConnectionId sock, char* szbuf);
     void VersionCheck_Request(ConnectionId sock, char* szbuf);
+    void GameJoin_Request(ConnectionId sock, char* szbuf);
+    void GameAction_Request(ConnectionId sock, char* szbuf);
+    void EarthChunk_Request(ConnectionId sock, char* szbuf);
+    void EarthOverview_Request(ConnectionId sock, char* szbuf);
 public:
     //单例模式--不支持线程安全
     //饿汉模式，支持线程安全 高效
@@ -110,6 +118,11 @@ private:
     void cleanupUpload(long long fileId);
     void cleanupDownload(ConnectionId sock, long long fileId = 0);
     void handleDisconnected(ConnectionId sock);
+    DefenseGameServer* ensureDefenseGame(const QPoint& earthPosition);
+    int defenseWorldIdForEarthPosition(const QPoint& earthPosition) const;
+    bool transitionDefensePlayer(DefenseGameServer* source, ConnectionId socket,
+                                 qint64 userId, int directionX, int directionY);
+    void unloadDefenseGameIfIdle(DefenseGameServer* game);
 
     INet *m_pTCPNet;
     CMySql *m_pSQL;
@@ -118,7 +131,7 @@ private:
     QString m_storageRootPath;
     QString m_logFilePath;
     QString m_runtimeLogFilePath;
-    QString m_listenHost = QStringLiteral("127.0.0.1");
+    QString m_listenHost = QStringLiteral("0.0.0.0");
     quint16 m_listenPort = 1234;
     bool m_tlsEnabled = true;
     QString m_tlsCertPath;
@@ -133,6 +146,10 @@ private:
     QHash<long long, QHash<ConnectionId, downloadFileInfo*>> m_downloadByFile;
     QHash<long long, QSet<ConnectionId>> m_userConnections;
     QHash<ConnectionId, long long> m_connectionUsers;
+    QHash<int, DefenseGameServer*> m_defenseGames;
+    QHash<ConnectionId, DefenseGameServer*> m_connectionGames;
+    int m_defaultDefenseWorldId = 1;
+    EarthWorld* m_earthWorld = nullptr;
     ofstream outFile;
 };
 

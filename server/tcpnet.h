@@ -51,7 +51,7 @@ public:
     explicit TCPNet(QObject* parent = nullptr);
     ~TCPNet() override;
 
-    bool initNetWork(const char* szip = "127.0.0.1", quint16 sport = 1234) override;
+    bool initNetWork(const char* szip = "0.0.0.0", quint16 sport = 1234) override;
     void configureTls(bool enabled, const QString& certificatePath, const QString& privateKeyPath);
     void unInitNetWork(const char* szerr) override;
     bool sendData(ConnectionId sock, const char* szbuf, int nlen) override;

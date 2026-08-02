@@ -42,7 +42,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         list(PREPEND CMAKE_PREFIX_PATH "${JAEGER_QT_ROOT}")
     endif()
 
-    find_package(Qt6 REQUIRED COMPONENTS Core Network Sql)
+    find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Sql)
 endif()
 
 set(DISKSERVER_SOURCES
@@ -50,6 +50,8 @@ set(DISKSERVER_SOURCES
     main.cpp
     server/tcpnet.cpp
     kernel/TCPKernel.cpp
+    game/DefenseGameServer.cpp
+    game/EarthWorld.cpp
 )
 
 set(DISKSERVER_HEADERS
@@ -59,6 +61,26 @@ set(DISKSERVER_HEADERS
     server/tcpnet.h
     kernel/IKernel.h
     kernel/TCPKernel.h
+    game/DefenseGameServer.h
+    game/EarthWorld.h
+)
+
+set(RVO2_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/RVO2/src")
+add_library(NetDiskRVO2 STATIC
+    ${RVO2_SOURCE_DIR}/Agent.cc
+    ${RVO2_SOURCE_DIR}/KdTree.cc
+    ${RVO2_SOURCE_DIR}/Line.cc
+    ${RVO2_SOURCE_DIR}/Obstacle.cc
+    ${RVO2_SOURCE_DIR}/RVOSimulator.cc
+    ${RVO2_SOURCE_DIR}/Vector2.cc
+)
+target_include_directories(NetDiskRVO2 PUBLIC ${RVO2_SOURCE_DIR})
+target_compile_definitions(NetDiskRVO2 PUBLIC RVO_STATIC_DEFINE)
+set_target_properties(NetDiskRVO2 PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    AUTOMOC OFF
+    AUTOUIC OFF
+    AUTORCC OFF
 )
 
 qt_add_executable(DiskServerApp
@@ -70,10 +92,13 @@ target_include_directories(DiskServerApp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/server
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel
+    ${CMAKE_CURRENT_SOURCE_DIR}/game
 )
 
 target_link_libraries(DiskServerApp PRIVATE
+    NetDiskRVO2
     Qt6::Core
+    Qt6::Gui
     Qt6::Network
     Qt6::Sql
 )
@@ -97,6 +122,29 @@ add_custom_command(TARGET DiskServerApp POST_BUILD
         -DINPUT_FILE="${CMAKE_CURRENT_SOURCE_DIR}/updates/client_version.ini.example"
         -DOUTPUT_FILE="$<TARGET_FILE_DIR:DiskServerApp>/updates/client_version.ini"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ensure_client_version_ini.cmake"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:DiskServerApp>/earth"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/earth/ne_110m_land.geojson"
+        "$<TARGET_FILE_DIR:DiskServerApp>/earth/ne_110m_land.geojson"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/earth/ne_110m_rivers_lake_centerlines.geojson"
+        "$<TARGET_FILE_DIR:DiskServerApp>/earth/ne_110m_rivers_lake_centerlines.geojson"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/earth/ne_110m_populated_places.geojson"
+        "$<TARGET_FILE_DIR:DiskServerApp>/earth/ne_110m_populated_places.geojson"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/earth/ne_110m_geography_regions_points.geojson"
+        "$<TARGET_FILE_DIR:DiskServerApp>/earth/ne_110m_geography_regions_points.geojson"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/earth/ne_110m_geography_regions_polys.geojson"
+        "$<TARGET_FILE_DIR:DiskServerApp>/earth/ne_110m_geography_regions_polys.geojson"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/earth/ne_110m_geography_marine_polys.geojson"
+        "$<TARGET_FILE_DIR:DiskServerApp>/earth/ne_110m_geography_marine_polys.geojson"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/earth/README.md"
+        "$<TARGET_FILE_DIR:DiskServerApp>/earth/README.md"
 )
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/diskserver.ini")
@@ -119,4 +167,52 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tls/server.key")
             "${CMAKE_CURRENT_SOURCE_DIR}/tls/server.key"
             "$<TARGET_FILE_DIR:DiskServerApp>/tls/server.key"
     )
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    qt_add_executable(DefenseGamePathfindingTest
+        tests/defense_game_pathfinding_test.cpp
+        CMySql.cpp
+        CMySql.h
+        Packdef.h
+        server/INet.h
+        game/DefenseGameServer.cpp
+        game/DefenseGameServer.h
+    )
+    target_include_directories(DefenseGamePathfindingTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/server
+        ${CMAKE_CURRENT_SOURCE_DIR}/game
+    )
+    target_link_libraries(DefenseGamePathfindingTest PRIVATE
+        NetDiskRVO2
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+        Qt6::Sql
+    )
+    add_test(NAME defense_game_pathfinding COMMAND DefenseGamePathfindingTest)
+
+    qt_add_executable(EarthWorldTest
+        tests/earth_world_test.cpp
+        CMySql.cpp
+        CMySql.h
+        Packdef.h
+        game/EarthWorld.cpp
+        game/EarthWorld.h
+    )
+    target_include_directories(EarthWorldTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/game
+    )
+    target_link_libraries(EarthWorldTest PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Sql
+    )
+    target_compile_definitions(EarthWorldTest PRIVATE
+        EARTH_TEST_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/earth"
+    )
+    add_test(NAME earth_world COMMAND EarthWorldTest)
 endif()
