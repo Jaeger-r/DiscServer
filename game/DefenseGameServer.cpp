@@ -85,6 +85,27 @@ constexpr float kZombieBreachPathSavingsRatio = 0.72f;
 constexpr float kZombieBreachPathMinimumSavings = 6.0f;
 constexpr int kWorldSchemaVersion = 8;
 
+int giantZombieQuotaForBatch(int wave, int batchSize)
+{
+    if (wave <= 10 || batchSize <= 0) {
+        return 0;
+    }
+    // Start conservatively at wave 11 and reach the hard 20% ceiling gradually.
+    const int percentage = qMin(20, 4 + wave - 11);
+    return qMin(batchSize * percentage / 100, batchSize * 20 / 100);
+}
+
+bool shouldSpawnGiant(int index, int batchSize, int quota, int spawned)
+{
+    if (quota <= spawned || batchSize <= 0) {
+        return false;
+    }
+    const int remaining = batchSize - index;
+    const int remainingGiants = quota - spawned;
+    return remaining <= remainingGiants
+        || index + 1 >= (batchSize * (spawned + 1)) / (quota + 1);
+}
+
 float distanceBetween(float x1, float y1, float x2, float y2)
 {
     return qSqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
@@ -3576,12 +3597,15 @@ int DefenseGameServer::triggerZombieOutbreak(const QPointF& center, int zombieCo
     }
 
     const int limit = qMin(zombieCount, candidates.size());
+    const int giantQuota = giantZombieQuotaForBatch(m_wave, limit);
+    int giantSpawned = 0;
     int spawned = 0;
     for (int i = 0; i < limit && m_zombies.size() < kMaxActiveZombies; ++i) {
         const int selected = QRandomGenerator::global()->bounded(i, candidates.size());
         qSwap(candidates[i], candidates[selected]);
         const int index = candidates.at(i);
-        const int kind = m_wave >= 4 && i % 15 == 14
+        const bool spawnGiant = shouldSpawnGiant(i, limit, giantQuota, giantSpawned);
+        const int kind = spawnGiant
             ? GAME_ZOMBIE_KIND_GIANT
             : m_wave >= 2 && i % 5 == 4
                 ? GAME_ZOMBIE_KIND_ELITE : GAME_ZOMBIE_KIND_NORMAL;
@@ -3591,6 +3615,9 @@ int DefenseGameServer::triggerZombieOutbreak(const QPointF& center, int zombieCo
                       45 + qMax(1, m_wave) * 8, kind);
         if (m_zombies.size() > before) {
             ++spawned;
+            if (spawnGiant) {
+                ++giantSpawned;
+            }
             if (index < m_dormantZombieDensity.size()
                 && m_dormantZombieDensity[index] > 0) {
                 --m_dormantZombieDensity[index];
@@ -3975,8 +4002,12 @@ void DefenseGameServer::materializeNearbyHordes(qint64 nowMs, bool force)
     }
     std::sort(candidates.begin(), candidates.end());
     int activationBudget = assaultActive ? 18 : 4;
+    const int batchSize = qMin(activationBudget, candidates.size());
+    const int giantQuota = giantZombieQuotaForBatch(m_wave, batchSize);
+    int materialized = 0;
+    int giantSpawned = 0;
     for (const auto& candidate : candidates) {
-        if (activationBudget <= 0 || m_zombies.size() >= kMaxActiveZombies) {
+        if (materialized >= batchSize || m_zombies.size() >= kMaxActiveZombies) {
             break;
         }
         const int index = candidate.second;
@@ -3984,14 +4015,19 @@ void DefenseGameServer::materializeNearbyHordes(qint64 nowMs, bool force)
             continue;
         }
         --m_dormantZombieDensity[index];
-        const int kind = m_wave >= 3 && (m_nextZombieId % 11 == 0)
+        const bool spawnGiant = shouldSpawnGiant(
+            materialized, batchSize, giantQuota, giantSpawned);
+        const int kind = spawnGiant
             ? GAME_ZOMBIE_KIND_GIANT
             : m_wave >= 2 && (m_nextZombieId % 4 == 0)
                 ? GAME_ZOMBIE_KIND_ELITE : GAME_ZOMBIE_KIND_NORMAL;
         spawnZombieAt(QPointF(index % GAME_MAP_WIDTH + 0.5f,
                               index / GAME_MAP_WIDTH + 0.5f),
                       45 + qMax(1, m_wave) * 8, kind);
-        --activationBudget;
+        ++materialized;
+        if (spawnGiant) {
+            ++giantSpawned;
+        }
     }
 }
 

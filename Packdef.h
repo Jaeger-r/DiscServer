@@ -156,7 +156,7 @@
 #define GAME_MAX_LEVEL 100
 #define GAME_ZOMBIE_COIN_REWARD 5
 #define GAME_ZOMBIE_ELITE_COIN_BONUS 2
-#define GAME_WAVE_INTERVAL_SECONDS 60
+#define GAME_WAVE_INTERVAL_SECONDS 300
 #define GAME_WAVE_ASSAULT_SECONDS 45
 #define GAME_BUILDING_HP_PER_LEVEL_PERCENT 25
 #define GAME_TURRET_ATTACK_PER_LEVEL 5
@@ -525,6 +525,9 @@ struct OnlineUserInfo {
     long long m_userId;
     char m_userName[MAXSIZE];
     char m_online;
+    std::int32_t m_worldX = -1;
+    std::int32_t m_worldY = -1;
+    std::int32_t m_worldId = 0;
 };
 struct STRU_ONLINE_USERS_RQ:public STRU_BASE{
     STRU_ONLINE_USERS_RQ(){

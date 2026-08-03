@@ -1720,6 +1720,12 @@ void TCPKernel::fillOnlineUsersResponse(STRU_ONLINE_USERS_RS& response, long lon
         OnlineUserInfo& item = response.m_users[response.m_userCount++];
         item.m_userId = userId;
         item.m_online = m_userConnections.contains(userId) ? 1 : 0;
+        const QPoint earthPosition = m_earthWorld
+            ? m_earthWorld->playerPosition(userId) : QPoint(-1, -1);
+        item.m_worldX = earthPosition.x();
+        item.m_worldY = earthPosition.y();
+        item.m_worldId = (earthPosition.x() >= 0 && earthPosition.y() >= 0)
+            ? defenseWorldIdForEarthPosition(earthPosition) : 0;
         copyProtocolText(item.m_userName, MAXSIZE, userName);
     }
 }

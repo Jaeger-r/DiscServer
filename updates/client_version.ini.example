@@ -1,6 +1,6 @@
 [client]
-latestVersion=1.0.1.0.0.1
-downloadUrl=http://43.142.3.188/releases/DiskClient-1.0.1.0.0.1.dmg
+latestVersion=1.0.1.0.0.2
+downloadUrl=http://43.142.3.188/releases/DiskClient-1.0.1.0.0.2.dmg
 sha256=
 releaseNotes=新增游戏模块：安全区防线
 forceUpdate=false
